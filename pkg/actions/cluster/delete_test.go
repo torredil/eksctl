@@ -1,7 +1,7 @@
 package cluster_test
 
 import (
-	"time"
+	"context"
 
 	"github.com/weaveworks/eksctl/pkg/actions/nodegroup"
 	"github.com/weaveworks/eksctl/pkg/ctl/cmdutils"
@@ -9,6 +9,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
+	"k8s.io/client-go/kubernetes/fake"
+
 	"github.com/weaveworks/eksctl/pkg/actions/cluster"
 	api "github.com/weaveworks/eksctl/pkg/apis/eksctl.io/v1alpha5"
 	"github.com/weaveworks/eksctl/pkg/cfn/manager"
@@ -16,15 +18,14 @@ import (
 	"github.com/weaveworks/eksctl/pkg/eks"
 	"github.com/weaveworks/eksctl/pkg/kubernetes"
 	"github.com/weaveworks/eksctl/pkg/testutils/mockprovider"
-	"k8s.io/client-go/kubernetes/fake"
 )
 
 type drainerMock struct {
 	mock.Mock
 }
 
-func (drainer *drainerMock) Drain(input *nodegroup.DrainInput) error {
-	args := drainer.Called(input)
+func (d *drainerMock) Drain(ctx context.Context, input *nodegroup.DrainInput) error {
+	args := d.Called(input)
 	return args.Error(0)
 }
 
@@ -70,7 +71,7 @@ var _ = Describe("DrainAllNodeGroups", func() {
 					vpcCniDeleterCalled++
 				}
 
-				err := cluster.DrainAllNodeGroups(cfg, ctl, fakeClientSet, nodeGroupStacks, false, 1, mockedDrainer, vpcCniDeleter, time.Second*0)
+				err := cluster.DrainAllNodeGroups(context.Background(), cfg, ctl, fakeClientSet, nodeGroupStacks, false, 1, mockedDrainer, vpcCniDeleter, 0)
 				Expect(err).NotTo(HaveOccurred())
 				mockedDrainer.AssertNumberOfCalls(GinkgoT(), "Drain", 1)
 				Expect(vpcCniDeleterCalled).To(Equal(1))
@@ -99,7 +100,7 @@ var _ = Describe("DrainAllNodeGroups", func() {
 					vpcCniDeleterCalled++
 				}
 
-				err := cluster.DrainAllNodeGroups(cfg, ctl, fakeClientSet, nodeGroupStacks, true, 1, mockedDrainer, vpcCniDeleter, time.Second*0)
+				err := cluster.DrainAllNodeGroups(context.Background(), cfg, ctl, fakeClientSet, nodeGroupStacks, true, 1, mockedDrainer, vpcCniDeleter, 0)
 				Expect(err).NotTo(HaveOccurred())
 				mockedDrainer.AssertNumberOfCalls(GinkgoT(), "Drain", 1)
 				Expect(vpcCniDeleterCalled).To(Equal(1))
@@ -127,7 +128,7 @@ var _ = Describe("DrainAllNodeGroups", func() {
 					vpcCniDeleterCalled++
 				}
 
-				err := cluster.DrainAllNodeGroups(cfg, ctl, fakeClientSet, nodeGroupStacks, false, 1, mockedDrainer, vpcCniDeleter, time.Second*0)
+				err := cluster.DrainAllNodeGroups(context.Background(), cfg, ctl, fakeClientSet, nodeGroupStacks, false, 1, mockedDrainer, vpcCniDeleter, 0)
 				Expect(err).NotTo(HaveOccurred())
 				mockedDrainer.AssertNotCalled(GinkgoT(), "Drain")
 				Expect(vpcCniDeleterCalled).To(Equal(0))

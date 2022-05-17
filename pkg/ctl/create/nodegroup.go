@@ -49,7 +49,8 @@ func createNodeGroupCmd(cmd *cmdutils.Cmd) {
 			}()
 		}
 
-		ctx := context.TODO()
+		ctx, cancel := context.WithTimeout(context.Background(), cmd.ProviderConfig.WaitTimeout)
+		defer cancel()
 		ctl, err := cmd.NewProviderForExistingCluster(ctx)
 		if err != nil {
 			return errors.Wrap(err, "couldn't create cluster provider from options")

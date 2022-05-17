@@ -123,11 +123,11 @@ func (m *Manager) Create(ctx context.Context, options CreateOpts, nodegroupFilte
 		return err
 	}
 
-	if err := m.postNodeCreationTasks(m.clientSet, options); err != nil {
+	if err := m.postNodeCreationTasks(ctx, m.clientSet, options); err != nil {
 		return err
 	}
 
-	if err := m.init.ValidateExistingNodeGroupsForCompatibility(ctx, cfg, m.stackManager); err != nil {
+	if err := eks.ValidateExistingNodeGroupsForCompatibility(ctx, cfg, m.stackManager); err != nil {
 		logger.Critical("failed checking nodegroups", err.Error())
 	}
 
@@ -176,10 +176,10 @@ func (m *Manager) nodeCreationTasks(ctx context.Context, isOwnedCluster bool) er
 	}
 
 	taskTree.Append(allNodeGroupTasks)
-	return m.init.DoAllNodegroupStackTasks(taskTree, meta.Region, meta.Name)
+	return eks.DoAllNodegroupStackTasks(taskTree, meta.Region, meta.Name)
 }
 
-func (m *Manager) postNodeCreationTasks(clientSet kubernetes.Interface, options CreateOpts) error {
+func (m *Manager) postNodeCreationTasks(ctx context.Context, clientSet kubernetes.Interface, options CreateOpts) error {
 	tasks := m.ctl.ClusterTasksForNodeGroups(m.cfg, options.InstallNeuronDevicePlugin, options.InstallNvidiaDevicePlugin)
 	logger.Info(tasks.Describe())
 	errs := tasks.DoAllSync()
@@ -195,14 +195,14 @@ func (m *Manager) postNodeCreationTasks(clientSet kubernetes.Interface, options 
 	}
 
 	if options.UpdateAuthConfigMap {
-		if err := m.kubeProvider.UpdateAuthConfigMap(m.cfg.NodeGroups, clientSet); err != nil {
+		if err := eks.UpdateAuthConfigMap(ctx, m.cfg.NodeGroups, clientSet); err != nil {
 			return err
 		}
 	}
 	logger.Success("created %d nodegroup(s) in cluster %q", len(m.cfg.NodeGroups), m.cfg.Metadata.Name)
 
 	for _, ng := range m.cfg.ManagedNodeGroups {
-		if err := m.kubeProvider.WaitForNodes(clientSet, ng); err != nil {
+		if err := eks.WaitForNodes(ctx, clientSet, ng); err != nil {
 			if m.cfg.PrivateCluster.Enabled {
 				logger.Info("error waiting for nodes to join the cluster; this command was likely run from outside the cluster's VPC as the API server is not reachable, nodegroup(s) should still be able to join the cluster, underlying error is: %v", err)
 				break

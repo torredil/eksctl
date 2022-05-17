@@ -180,7 +180,8 @@ func doCreateCluster(cmd *cmdutils.Cmd, ngFilter *filter.NodeGroupFilter, params
 		params.KubeconfigPath = kubeconfig.AutoPath(meta.Name)
 	}
 
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), cmd.ProviderConfig.WaitTimeout)
+	defer cancel()
 
 	if checkSubnetsGivenAsFlags(params) {
 		// undo defaulting and reset it, as it's not set via config file;
@@ -354,13 +355,13 @@ func doCreateCluster(cmd *cmdutils.Cmd, ngFilter *filter.NodeGroupFilter, params
 			}
 
 			// wait for nodes to join
-			if err = ctl.WaitForNodes(clientSet, ng); err != nil {
+			if err = eks.WaitForNodes(ctx, clientSet, ng); err != nil {
 				return err
 			}
 		}
 
 		for _, ng := range cfg.ManagedNodeGroups {
-			if err := ctl.WaitForNodes(clientSet, ng); err != nil {
+			if err := eks.WaitForNodes(ctx, clientSet, ng); err != nil {
 				return err
 			}
 		}

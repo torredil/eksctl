@@ -60,8 +60,6 @@ type KubeProvider interface {
 	ServerVersion(rawClient *kubernetes.RawClient) (string, error)
 	LoadClusterIntoSpecFromStack(ctx context.Context, spec *api.ClusterConfig, stackManager manager.StackManager) error
 	ValidateClusterForCompatibility(ctx context.Context, cfg *api.ClusterConfig, stackManager manager.StackManager) error
-	UpdateAuthConfigMap(nodeGroups []*api.NodeGroup, clientSet kubernetes.Interface) error
-	WaitForNodes(clientSet kubernetes.Interface, ng KubeNodeGroup) error
 }
 
 // ProviderServices stores the used APIs
