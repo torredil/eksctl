@@ -128,6 +128,17 @@ var _ = Describe("ClusterConfig validation", func() {
 			err = api.ValidateNodeGroup(0, ng0)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		It("containerd cannot be set together with overrideBootstrapCommand", func() {
+			cfg := api.NewClusterConfig()
+			ng0 := cfg.NewNodeGroup()
+			ng0.Name = "node-group"
+			ng0.AMIFamily = api.NodeImageFamilyAmazonLinux2
+			ng0.ContainerRuntime = aws.String(api.ContainerRuntimeContainerD)
+			ng0.OverrideBootstrapCommand = aws.String("bootstrap command")
+			err := api.ValidateNodeGroup(0, ng0)
+			Expect(err).To(MatchError(ContainSubstring("overrideBootstrapCommand overwrites container runtime setting; please use --container-runtime in the bootsrap script instead")))
+		})
 	})
 
 	Describe("nodeGroups[*].ami validation", func() {
@@ -145,6 +156,23 @@ var _ = Describe("ClusterConfig validation", func() {
 			ng0.AMI = "ami-1234"
 			ng0.AMIFamily = api.NodeImageFamilyBottlerocket
 			Expect(api.ValidateNodeGroup(0, ng0)).To(Succeed())
+		})
+		It("should not require overrideBootstrapCommand if ami is set and type is Windows", func() {
+			cfg := api.NewClusterConfig()
+			ng0 := cfg.NewNodeGroup()
+			ng0.Name = "node-group"
+			ng0.AMI = "ami-1234"
+			ng0.AMIFamily = api.NodeImageFamilyWindowsServer2019CoreContainer
+			Expect(api.ValidateNodeGroup(0, ng0)).To(Succeed())
+		})
+		It("should throw an error if overrideBootstrapCommand is set and type is Windows", func() {
+			cfg := api.NewClusterConfig()
+			ng0 := cfg.NewNodeGroup()
+			ng0.Name = "node-group"
+			ng0.AMI = "ami-1234"
+			ng0.AMIFamily = api.NodeImageFamilyWindowsServer2019CoreContainer
+			ng0.OverrideBootstrapCommand = aws.String("echo 'yo'")
+			Expect(api.ValidateNodeGroup(0, ng0)).To(MatchError(ContainSubstring("overrideBootstrapCommand is not supported for WindowsServer2019CoreContainer nodegroups")))
 		})
 		It("should accept ami with a overrideBootstrapCommand set", func() {
 			cfg := api.NewClusterConfig()
@@ -683,6 +711,18 @@ var _ = Describe("ClusterConfig validation", func() {
 
 				It("should error on private=false, public=false", func() {
 					cfg.VPC.ClusterEndpoints = &api.ClusterEndpoints{PrivateAccess: api.Disabled(), PublicAccess: api.Disabled()}
+					err := api.ValidateClusterConfig(cfg)
+					Expect(err).To(MatchError(api.ErrClusterEndpointNoAccess))
+				})
+
+				It("should error on private=false, public=nil", func() {
+					cfg.VPC.ClusterEndpoints = &api.ClusterEndpoints{PrivateAccess: api.Disabled()}
+					err := api.ValidateClusterConfig(cfg)
+					Expect(err).To(MatchError(api.ErrClusterEndpointNoAccess))
+				})
+
+				It("should error on private=nil, public=false", func() {
+					cfg.VPC.ClusterEndpoints = &api.ClusterEndpoints{PublicAccess: api.Disabled()}
 					err := api.ValidateClusterConfig(cfg)
 					Expect(err).To(MatchError(api.ErrClusterEndpointNoAccess))
 				})
