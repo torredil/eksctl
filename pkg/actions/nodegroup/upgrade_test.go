@@ -65,7 +65,7 @@ var _ = Describe("Upgrade", func() {
 					Nodegroup: &ekstypes.Nodegroup{
 						NodegroupName: aws.String(ngName),
 						ClusterName:   aws.String(clusterName),
-						Status:        "my-status",
+						Status:        ekstypes.NodegroupStatusActive,
 						AmiType:       "ami-type",
 						Version:       aws.String("1.20"),
 						LaunchTemplate: &ekstypes.LaunchTemplateSpecification{
@@ -101,7 +101,7 @@ var _ = Describe("Upgrade", func() {
 					Nodegroup: &ekstypes.Nodegroup{
 						NodegroupName: aws.String(ngName),
 						ClusterName:   aws.String(clusterName),
-						Status:        "my-status",
+						Status:        ekstypes.NodegroupStatusActive,
 						AmiType:       ekstypes.AMITypesAl2X8664,
 						Version:       aws.String("1.20"),
 						LaunchTemplate: &ekstypes.LaunchTemplateSpecification{
@@ -133,7 +133,7 @@ var _ = Describe("Upgrade", func() {
 		When("ForceUpdateEnabled isn't set", func() {
 			When("it uses amazonlinux2", func() {
 				BeforeEach(func() {
-					fakeStackManager.ListNodeGroupStacksReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
+					fakeStackManager.ListNodeGroupStacksWithStatusesReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
 
 					fakeStackManager.GetManagedNodeGroupTemplateReturns(al2WithoutForceTemplate, nil)
 
@@ -155,7 +155,7 @@ var _ = Describe("Upgrade", func() {
 						Nodegroup: &ekstypes.Nodegroup{
 							NodegroupName:  aws.String(ngName),
 							ClusterName:    aws.String(clusterName),
-							Status:         "my-status",
+							Status:         ekstypes.NodegroupStatusActive,
 							AmiType:        ekstypes.AMITypesAl2X8664,
 							Version:        aws.String("1.20"),
 							ReleaseVersion: aws.String("1.20-20201212"),
@@ -195,7 +195,7 @@ var _ = Describe("Upgrade", func() {
 		When("it already has ForceUpdateEnabled set to false", func() {
 			When("it uses amazonlinux2 GPU nodes", func() {
 				BeforeEach(func() {
-					fakeStackManager.ListNodeGroupStacksReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
+					fakeStackManager.ListNodeGroupStacksWithStatusesReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
 
 					fakeStackManager.GetManagedNodeGroupTemplateReturns(al2ForceFalseTemplate, nil)
 
@@ -217,7 +217,7 @@ var _ = Describe("Upgrade", func() {
 						Nodegroup: &ekstypes.Nodegroup{
 							NodegroupName:  aws.String(ngName),
 							ClusterName:    aws.String(clusterName),
-							Status:         "my-status",
+							Status:         ekstypes.NodegroupStatusActive,
 							AmiType:        ekstypes.AMITypesAl2X8664Gpu,
 							Version:        aws.String("1.20"),
 							ReleaseVersion: aws.String("1.20-20201212"),
@@ -251,7 +251,7 @@ var _ = Describe("Upgrade", func() {
 		When("ForceUpdateEnabled is set to true but the desired value is false", func() {
 			When("it uses bottlerocket", func() {
 				BeforeEach(func() {
-					fakeStackManager.ListNodeGroupStacksReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
+					fakeStackManager.ListNodeGroupStacksWithStatusesReturns([]manager.NodeGroupStack{{NodeGroupName: ngName}}, nil)
 
 					fakeStackManager.GetManagedNodeGroupTemplateReturns(brForceTrueTemplate, nil)
 
@@ -273,7 +273,7 @@ var _ = Describe("Upgrade", func() {
 						Nodegroup: &ekstypes.Nodegroup{
 							NodegroupName:  aws.String(ngName),
 							ClusterName:    aws.String(clusterName),
-							Status:         "my-status",
+							Status:         ekstypes.NodegroupStatusActive,
 							AmiType:        ekstypes.AMITypesBottlerocketX8664,
 							Version:        aws.String("1.20"),
 							ReleaseVersion: aws.String("1.20-20201212"),
@@ -308,6 +308,50 @@ var _ = Describe("Upgrade", func() {
 					Expect(template).To(Equal(brFulllyUpdatedTemplate))
 					Expect(wait).To(BeTrue())
 				})
+			})
+		})
+
+		When("nodegroup is already being updated", func() {
+			BeforeEach(func() {
+				p.MockEKS().On("DescribeNodegroup", mock.Anything, &awseks.DescribeNodegroupInput{
+					ClusterName:   aws.String(clusterName),
+					NodegroupName: aws.String(ngName),
+				}).Return(&awseks.DescribeNodegroupOutput{
+					Nodegroup: &ekstypes.Nodegroup{
+						NodegroupName:  aws.String(ngName),
+						ClusterName:    aws.String(clusterName),
+						Status:         ekstypes.NodegroupStatusUpdating,
+						AmiType:        ekstypes.AMITypesBottlerocketX8664,
+						Version:        aws.String("1.20"),
+						ReleaseVersion: aws.String("1.20-20201212"),
+					},
+				}, nil)
+			})
+
+			It("should return an error", func() {
+				Expect(m.Upgrade(context.Background(), options)).To(MatchError(ContainSubstring("nodegroup is currently being updated, please retry the command after the existing update is complete")))
+			})
+		})
+
+		When("nodegroup is not ACTIVE", func() {
+			BeforeEach(func() {
+				p.MockEKS().On("DescribeNodegroup", mock.Anything, &awseks.DescribeNodegroupInput{
+					ClusterName:   aws.String(clusterName),
+					NodegroupName: aws.String(ngName),
+				}).Return(&awseks.DescribeNodegroupOutput{
+					Nodegroup: &ekstypes.Nodegroup{
+						NodegroupName:  aws.String(ngName),
+						ClusterName:    aws.String(clusterName),
+						Status:         ekstypes.NodegroupStatusDegraded,
+						AmiType:        ekstypes.AMITypesBottlerocketX8664,
+						Version:        aws.String("1.20"),
+						ReleaseVersion: aws.String("1.20-20201212"),
+					},
+				}, nil)
+			})
+
+			It("should return an error", func() {
+				Expect(m.Upgrade(context.Background(), options)).To(MatchError(ContainSubstring(`nodegroup must be in "ACTIVE" state when upgrading a nodegroup; got state "DEGRADED"`)))
 			})
 		})
 	})

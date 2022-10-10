@@ -52,7 +52,7 @@ type UpgradeOptions struct {
 }
 
 func (m *Manager) Upgrade(ctx context.Context, options UpgradeOptions) error {
-	stacks, err := m.stackManager.ListNodeGroupStacks(ctx)
+	stacks, err := m.stackManager.ListNodeGroupStacksWithStatuses(ctx)
 	if err != nil {
 		return err
 	}
@@ -74,6 +74,16 @@ func (m *Manager) Upgrade(ctx context.Context, options UpgradeOptions) error {
 			return fmt.Errorf("upgrade is only supported for managed nodegroups; could not find one with name %q", options.NodegroupName)
 		}
 		return err
+	}
+
+	switch nodegroupOutput.Nodegroup.Status {
+	case ekstypes.NodegroupStatusActive:
+
+	case ekstypes.NodegroupStatusUpdating:
+		return errors.New("nodegroup is currently being updated, please retry the command after the existing update is complete")
+
+	default:
+		return fmt.Errorf("nodegroup must be in %q state when upgrading a nodegroup; got state %q", ekstypes.NodegroupStatusActive, nodegroupOutput.Nodegroup.Status)
 	}
 
 	if hasStack != nil {

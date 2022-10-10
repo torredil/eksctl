@@ -11,6 +11,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weaveworks/eksctl/integration/runner"
 	. "github.com/weaveworks/eksctl/integration/runner"
 	"github.com/weaveworks/eksctl/integration/tests"
 	api "github.com/weaveworks/eksctl/pkg/apis/eksctl.io/v1alpha5"
@@ -38,30 +39,7 @@ func TestEKSAddons(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	clusterConfig := api.NewClusterConfig()
-	clusterConfig.Metadata.Name = params.ClusterName
-	clusterConfig.Metadata.Version = api.LatestVersion
-	clusterConfig.Metadata.Region = params.Region
-	clusterConfig.IAM.WithOIDC = api.Enabled()
-	clusterConfig.Addons = []*api.Addon{
-		{
-			Name:             "vpc-cni",
-			AttachPolicyARNs: []string{"arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"},
-		},
-		{
-			Name:    "coredns",
-			Version: "latest",
-		},
-	}
-
-	ng := &api.ManagedNodeGroup{
-		NodeGroupBase: &api.NodeGroupBase{
-			Name: "ng",
-		},
-	}
-	clusterConfig.ManagedNodeGroups = []*api.ManagedNodeGroup{ng}
-
-	data, err := json.Marshal(clusterConfig)
+	data, err := json.Marshal(getInitialClusterConfig())
 	Expect(err).NotTo(HaveOccurred())
 
 	cmd := params.EksctlCreateCmd.
@@ -88,38 +66,72 @@ var _ = Describe("(Integration) [EKS Addons test]", func() {
 
 		It("should support addons", func() {
 			By("Asserting the addon is listed in `get addons`")
-			cmd := params.EksctlGetCmd.
-				WithArgs(
-					"addons",
-					"--cluster", clusterName,
-					"--verbose", "2",
-				)
-			Expect(cmd).To(RunSuccessfullyWithOutputStringLines(
+			Eventually(func() runner.Cmd {
+				cmd := params.EksctlGetCmd.
+					WithArgs(
+						"addons",
+						"--cluster", clusterName,
+						"--verbose", "2",
+					)
+				return cmd
+			}, "5m", "30s").Should(RunSuccessfullyWithOutputStringLines(
 				ContainElement(ContainSubstring("vpc-cni")),
 				ContainElement(ContainSubstring("coredns")),
 			))
 
 			By("Asserting the addons are healthy")
-			cmd = params.EksctlGetCmd.
-				WithArgs(
-					"addon",
-					"--name", "vpc-cni",
-					"--cluster", clusterName,
-					"--verbose", "2",
-				)
-			Expect(cmd).To(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
+			Eventually(func() runner.Cmd {
+				cmd := params.EksctlGetCmd.
+					WithArgs(
+						"addon",
+						"--name", "vpc-cni",
+						"--cluster", clusterName,
+						"--verbose", "2",
+					)
+				return cmd
+			}, "5m", "30s").Should(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
 
-			cmd = params.EksctlGetCmd.
+			Eventually(func() runner.Cmd {
+				cmd := params.EksctlGetCmd.
+					WithArgs(
+						"addon",
+						"--name", "coredns",
+						"--cluster", clusterName,
+						"--verbose", "2",
+					)
+				return cmd
+			}, "5m", "30s").Should(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
+
+			By("successfully creating the aws-ebs-csi-driver addon via config file")
+			// setup config file
+			clusterConfig := getInitialClusterConfig()
+			clusterConfig.Addons = append(clusterConfig.Addons, &api.Addon{
+				Name: "aws-ebs-csi-driver",
+			})
+			data, err := json.Marshal(clusterConfig)
+
+			Expect(err).NotTo(HaveOccurred())
+			cmd := params.EksctlCreateCmd.
 				WithArgs(
 					"addon",
-					"--name", "coredns",
-					"--cluster", clusterName,
-					"--verbose", "2",
-				)
-			Expect(cmd).To(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
+					"--config-file", "-",
+				).
+				WithoutArg("--region", params.Region).
+				WithStdin(bytes.NewReader(data))
+			Expect(cmd).To(RunSuccessfully())
+
+			Eventually(func() runner.Cmd {
+				cmd := params.EksctlGetCmd.
+					WithArgs(
+						"addon",
+						"--name", "aws-ebs-csi-driver",
+						"--cluster", clusterName,
+						"--verbose", "2",
+					)
+				return cmd
+			}, "5m", "30s").Should(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
 
 			By("successfully creating the kube-proxy addon")
-
 			cmd = params.EksctlCreateCmd.
 				WithArgs(
 					"addon",
@@ -131,14 +143,16 @@ var _ = Describe("(Integration) [EKS Addons test]", func() {
 				)
 			Expect(cmd).To(RunSuccessfully())
 
-			cmd = params.EksctlGetCmd.
-				WithArgs(
-					"addon",
-					"--name", "kube-proxy",
-					"--cluster", clusterName,
-					"--verbose", "2",
-				)
-			Expect(cmd).To(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
+			Eventually(func() runner.Cmd {
+				cmd := params.EksctlGetCmd.
+					WithArgs(
+						"addon",
+						"--name", "kube-proxy",
+						"--cluster", clusterName,
+						"--verbose", "2",
+					)
+				return cmd
+			}, "5m", "30s").Should(RunSuccessfullyWithOutputStringLines(ContainElement(ContainSubstring("ACTIVE"))))
 
 			By("Deleting the kube-proxy addon")
 			cmd = params.EksctlDeleteCmd.
@@ -161,7 +175,7 @@ var _ = Describe("(Integration) [EKS Addons test]", func() {
 				)
 			Expect(cmd).To(RunSuccessfully())
 
-			_, err := rawClient.ClientSet().AppsV1().DaemonSets("kube-system").Get(context.Background(), "aws-node", metav1.GetOptions{})
+			_, err = rawClient.ClientSet().AppsV1().DaemonSets("kube-system").Get(context.Background(), "aws-node", metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -201,4 +215,31 @@ func getRawClient(ctx context.Context, clusterName string) *kubewrapper.RawClien
 	rawClient, err := ctl.NewRawClient(cfg)
 	Expect(err).NotTo(HaveOccurred())
 	return rawClient
+}
+
+func getInitialClusterConfig() *api.ClusterConfig {
+	clusterConfig := api.NewClusterConfig()
+	clusterConfig.Metadata.Name = params.ClusterName
+	clusterConfig.Metadata.Version = api.LatestVersion
+	clusterConfig.Metadata.Region = params.Region
+	clusterConfig.IAM.WithOIDC = api.Enabled()
+	clusterConfig.Addons = []*api.Addon{
+		{
+			Name:             "vpc-cni",
+			AttachPolicyARNs: []string{"arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"},
+		},
+		{
+			Name:    "coredns",
+			Version: "latest",
+		},
+	}
+
+	ng := &api.ManagedNodeGroup{
+		NodeGroupBase: &api.NodeGroupBase{
+			Name: "ng",
+		},
+	}
+	clusterConfig.ManagedNodeGroups = []*api.ManagedNodeGroup{ng}
+
+	return clusterConfig
 }

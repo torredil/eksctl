@@ -336,7 +336,7 @@ func AssignSubnets(ctx context.Context, np api.NodePool, vpcImporter vpc.Importe
 	// and tags don't have `PropagateAtLaunch` field, so we have a custom method here until this gets resolved
 
 	ng := np.BaseNodeGroup()
-	if nodeGroup, ok := np.(*api.NodeGroup); (!ok || len(nodeGroup.LocalZones) == 0) && len(ng.AvailabilityZones) == 0 && len(ng.Subnets) == 0 {
+	if nodeGroup, ok := np.(*api.NodeGroup); (!ok || len(nodeGroup.LocalZones) == 0) && len(ng.AvailabilityZones) == 0 && len(ng.Subnets) == 0 && (ng.OutpostARN == "" || clusterConfig.IsControlPlaneOnOutposts()) {
 		if ng.PrivateNetworking {
 			return vpcImporter.SubnetsPrivate(), nil
 		}
@@ -369,6 +369,23 @@ func newLaunchTemplateData(ctx context.Context, n *NodeGroupResourceSet) (*gfnec
 		UserData:          gfnt.NewString(userData),
 		MetadataOptions:   makeMetadataOptions(n.spec.NodeGroupBase),
 		TagSpecifications: makeTags(n.spec.NodeGroupBase, n.clusterSpec.Metadata),
+	}
+
+	if n.spec.CapacityReservation != nil {
+		valueOrNil := func(value *string) *gfnt.Value {
+			if value != nil {
+				return gfnt.NewString(*value)
+			}
+			return nil
+		}
+		launchTemplateData.CapacityReservationSpecification = &gfnec2.LaunchTemplate_CapacityReservationSpecification{}
+		launchTemplateData.CapacityReservationSpecification.CapacityReservationPreference = valueOrNil(n.spec.CapacityReservation.CapacityReservationPreference)
+		if n.spec.CapacityReservation.CapacityReservationTarget != nil {
+			launchTemplateData.CapacityReservationSpecification.CapacityReservationTarget = &gfnec2.LaunchTemplate_CapacityReservationTarget{
+				CapacityReservationId:               valueOrNil(n.spec.CapacityReservation.CapacityReservationTarget.CapacityReservationID),
+				CapacityReservationResourceGroupArn: valueOrNil(n.spec.CapacityReservation.CapacityReservationTarget.CapacityReservationResourceGroupARN),
+			}
+		}
 	}
 
 	if err := buildNetworkInterfaces(ctx, launchTemplateData, n.spec.InstanceTypeList(), api.IsEnabled(n.spec.EFAEnabled), n.securityGroups, n.ec2API); err != nil {
